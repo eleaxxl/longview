@@ -32,6 +32,11 @@ export function htmlToText(s: string): string {
     .split('\n')
     .map(l => l.replace(/[ \t ]+/g, ' ').trim())
     .join('\n')
+    // Google wraps list items in paragraphs; keep the text on the bullet's line, and items together.
+    .replace(/•\n+/g, '• ')
+    .split('\n')
+    .filter((l, i, ls) => l || !(ls[i - 1]?.startsWith('• ') && ls[i + 1]?.startsWith('• ')))
+    .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }

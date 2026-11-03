@@ -435,7 +435,14 @@ function EventDetail({ t, e, cal, onEdit }: { t: Theme; e: CalEvent; cal?: CalIn
       {e.recurring && <Text style={[styles.detailMeta, { color: t.muted }]}>重複行程</Text>}
       {!!e.location && <Text style={[styles.detailMeta, { color: t.muted }]}>地點：{e.location}</Text>}
       {cal && <Text style={[styles.detailMeta, { color: t.muted }]}>日曆：{cal.name}{cal.account ? `（${cal.account}）` : ''}</Text>}
-      {!!e.notes && <Text style={[styles.detailMeta, { color: t.ink }]}>{e.notes}</Text>}
+      {!!e.notes && (
+        // Long descriptions scroll inside the sheet; the title and the edit button stay in view.
+        <ScrollView style={styles.notesScroll}>
+          <Text selectable style={[styles.detailMeta, styles.notesText, { color: t.ink }]}>
+            {e.notes}
+          </Text>
+        </ScrollView>
+      )}
       {cal?.writable ? (
         <View style={styles.sheetActions}>
           <Btn t={t} label="編輯" onPress={onEdit} primary />
@@ -524,7 +531,9 @@ const baseStyles = StyleSheet.create({
   backdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   sheet: { width: '100%', maxWidth: 420, maxHeight: '90%', borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 18 },
   close: { position: 'absolute', top: 8, right: 12 },
-  detail: { gap: 6, paddingRight: 20 },
+  detail: { gap: 6, paddingRight: 20, flexShrink: 1 },
+  notesScroll: { flexGrow: 0, flexShrink: 1, marginRight: -20 },
+  notesText: { paddingRight: 20, lineHeight: 20 },
   detailHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   detailTitle: { fontSize: 16, fontWeight: '700', flexShrink: 1 },
   detailWhen: { fontSize: 13, fontVariant: ['tabular-nums'] },
