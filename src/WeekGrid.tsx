@@ -1,7 +1,7 @@
 import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Animated, FlatList, Pressable, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 
-import { DOW, addDays, diff, hm, isoWeek, pad } from './dates';
+import { DOW, addDays, diff, hm, isoWeek, key, pad } from './dates';
 import { density, layoutWeek, type Density } from './layout';
 import type { Theme } from './theme';
 import type { CalEvent } from './types';
@@ -20,6 +20,9 @@ type Props = {
   onDay: (d: Date) => void;
   /** Scrolling brought a different week to the top. */
   onStart: (start: Date) => void;
+  /** Days with a day plan, as date keys, and opening one. */
+  planned: Set<string>;
+  onPlan: (d: Date) => void;
 };
 
 const GUT = 32;
@@ -40,9 +43,11 @@ type RowProps = {
   today: Date;
   onEvent: (e: CalEvent) => void;
   onDay: (d: Date) => void;
+  planned: Set<string>;
+  onPlan: (d: Date) => void;
 };
 
-const WeekRow = memo(function WeekRow({ wsTime, events, colors, t, dens, rowH, today, onEvent, onDay }: RowProps) {
+const WeekRow = memo(function WeekRow({ wsTime, events, colors, t, dens, rowH, today, onEvent, onDay, planned, onPlan }: RowProps) {
   const styles = useScaled(baseStyles);
   const z = useZoom();
   const ws = new Date(wsTime);
@@ -94,6 +99,16 @@ const WeekRow = memo(function WeekRow({ wsTime, events, colors, t, dens, rowH, t
                       {d.getDate() === 1 && dens.name !== 'micro' ? `${d.getMonth() + 1}/1` : d.getDate()}
                     </Text>
                   </View>
+                  {planned.has(key(d)) &&
+                    (dens.name === 'micro' ? (
+                      <View style={[styles.planDot, { backgroundColor: t.accent }]} />
+                    ) : (
+                      <Pressable onPress={() => onPlan(d)} hitSlop={4} style={[styles.plan, { borderColor: t.accent }]}>
+                        <Text numberOfLines={1} style={[styles.planText, { color: t.accent }]}>
+                          單日規劃
+                        </Text>
+                      </Pressable>
+                    ))}
                   {showCnt && <Text style={[styles.cnt, { color: t.muted }]}>·{lay.timedCount[i]}</Text>}
                 </View>
               </Pressable>
@@ -183,7 +198,7 @@ const WeekRow = memo(function WeekRow({ wsTime, events, colors, t, dens, rowH, t
  * The weeks scroll freely (mouse wheel, trackpad, touch, or the scrollbar on the right) over a fixed span.
  * The week at the top is reported back as `start`; a `start` changed elsewhere scrolls the list to it.
  */
-export function WeekGrid({ start, weeks, wso, today, events, colors, theme: t, onEvent, onDay, onStart }: Props) {
+export function WeekGrid({ start, weeks, wso, today, events, colors, theme: t, onEvent, onDay, onStart, planned, onPlan }: Props) {
   const styles = useScaled(baseStyles);
   const [height, setHeight] = useState(0);
   const rowH = height / weeks;
@@ -271,7 +286,7 @@ export function WeekGrid({ start, weeks, wso, today, events, colors, theme: t, o
               ref={list}
               data={rows}
               keyExtractor={i => String(+addDays(anchor, i * 7))}
-              extraData={[events, colors, t, rowH]}
+              extraData={[events, colors, t, rowH, planned]}
               getItemLayout={(_, i) => ({
                 length: rowH,
                 offset: rowH * i,
@@ -297,6 +312,8 @@ export function WeekGrid({ start, weeks, wso, today, events, colors, theme: t, o
                   today={today}
                   onEvent={onEvent}
                   onDay={onDay}
+                  planned={planned}
+                  onPlan={onPlan}
                 />
               )}
             />
@@ -361,6 +378,9 @@ const baseStyles = StyleSheet.create({
   dn: { borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1 },
   dnText: { fontSize: 11, fontVariant: ['tabular-nums'] },
   dnMicro: { fontSize: 8, lineHeight: 10 },
+  plan: { flexShrink: 1, marginLeft: 3, borderWidth: 1, borderRadius: 4, paddingHorizontal: 3 },
+  planText: { fontSize: 9, fontWeight: '600' },
+  planDot: { width: 4, height: 4, borderRadius: 2, marginLeft: 2 },
   cnt: { fontSize: 9, marginLeft: 'auto', fontVariant: ['tabular-nums'] },
   piece: { position: 'absolute', paddingHorizontal: 1.5, paddingBottom: 1.5 },
   pieceInner: {

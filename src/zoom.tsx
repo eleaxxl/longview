@@ -3,18 +3,11 @@ import { createContext, useCallback, useContext, useMemo, useState } from 'react
 
 import { addZoomListener } from '../modules/key-commands';
 import type { Density } from './layout';
+import { storage } from './storage';
 
 export const ZOOMS = [0.85, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.25, 2.5, 3];
 const KEY = 'zoom';
 
-// Remembered between launches where expo-sqlite's key-value store is available.
-let storage: { getItemSync(k: string): string | null; setItemSync(k: string, v: string): void } | null = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  storage = require('expo-sqlite/kv-store').default;
-} catch {
-  storage = null;
-}
 
 function readZoom(): number {
   try {

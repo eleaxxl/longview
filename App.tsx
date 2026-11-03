@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
-import { addDays, dayOnly, diff, fmtDay, fmtShort, hm, startOfWeek } from './src/dates';
+import { addDays, dayOnly, diff, fmtDay, fmtShort, hm, key, startOfWeek } from './src/dates';
 import {
   createEvent,
   deleteEvent,
@@ -25,6 +25,8 @@ import {
   requestAccess,
   updateEvent,
 } from './src/deviceCalendar';
+import { DayPlanner } from './src/DayPlanner';
+import { useDayPlans } from './src/dayPlans';
 import { EventEditor } from './src/EventEditor';
 import { SAMPLE_CALS, applySampleEdit, removeSample, sampleEvents } from './src/sampleData';
 import { useTheme, type Theme } from './src/theme';
@@ -72,6 +74,8 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
   const [openEvent, setOpenEvent] = useState<CalEvent | null>(null);
   const [openDay, setOpenDay] = useState<Date | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
+  const [planDay, setPlanDay] = useState<Date | null>(null);
+  const { planned, save: savePlan } = useDayPlans();
   const loaded = useRef<{ from: Date; to: Date; source: Source } | null>(null);
 
   const setWeeks = useCallback((n: number | ((w: number) => number)) => {
@@ -338,6 +342,8 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
           onEvent={setOpenEvent}
           onDay={setOpenDay}
           onStart={setStart}
+          planned={planned}
+          onPlan={setPlanDay}
         />
       </View>
 
@@ -369,9 +375,27 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
             colors={colors}
             onPick={e => setOpenEvent(e)}
             onAdd={writableCals.length ? () => startNew(openDay) : undefined}
+            hasPlan={planned.has(key(openDay))}
+            onPlan={() => {
+              setPlanDay(openDay);
+              closeSheet();
+            }}
           />
         ) : null}
       </Sheet>
+
+      {planDay && (
+        <DayPlanner
+          t={t}
+          day={planDay}
+          today={today}
+          events={visible}
+          colors={colors}
+          onSave={savePlan}
+          onDay={setPlanDay}
+          onClose={() => setPlanDay(null)}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -461,6 +485,8 @@ function DayList({
   colors,
   onPick,
   onAdd,
+  hasPlan,
+  onPlan,
 }: {
   t: Theme;
   day: Date;
@@ -468,6 +494,8 @@ function DayList({
   colors: Record<string, string>;
   onPick: (e: CalEvent) => void;
   onAdd?: () => void;
+  hasPlan: boolean;
+  onPlan: () => void;
 }) {
   const styles = useScaled(baseStyles);
   const list = events
@@ -488,11 +516,10 @@ function DayList({
           </Pressable>
         ))}
       </ScrollView>
-      {onAdd && (
-        <View style={styles.sheetActions}>
-          <Btn t={t} label="＋ 在這天新增" onPress={onAdd} primary />
-        </View>
-      )}
+      <View style={styles.sheetActions}>
+        <Btn t={t} label={hasPlan ? '📝 打開單日規劃' : '📝 單日規劃'} onPress={onPlan} />
+        {onAdd && <Btn t={t} label="＋ 在這天新增" onPress={onAdd} primary />}
+      </View>
     </View>
   );
 }
@@ -527,7 +554,7 @@ const baseStyles = StyleSheet.create({
   chipAccount: { fontSize: 10, marginLeft: 'auto' },
   gridWrap: { flex: 1, paddingBottom: 8 },
   flex: { flex: 1 },
-  sheetActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 },
+  sheetActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, marginTop: 10 },
   backdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   sheet: { width: '100%', maxWidth: 420, maxHeight: '90%', borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 18 },
   close: { position: 'absolute', top: 8, right: 12 },
