@@ -4,6 +4,7 @@ import * as Calendar from 'expo-calendar';
 import { Platform } from 'react-native';
 
 import { addDays, dayOnly } from './dates';
+import { htmlToText } from './html';
 import { noRepeat, type CalEvent, type CalInfo, type EventDraft, type Repeat, type RepeatFreq } from './types';
 
 export const deviceCalendarSupported = Platform.OS === 'ios' || Platform.OS === 'android';
@@ -98,7 +99,8 @@ export async function loadEvents(calIds: string[], from: Date, to: Date): Promis
       recurring: !!ev.recurrenceRule,
       repeat: fromRule(ev.recurrenceRule, st),
       alarm: ev.alarms?.[0]?.relativeOffset ?? null,
-      notes: ev.notes ?? '',
+      notes: htmlToText(ev.notes ?? ''),
+      rawNotes: ev.notes ?? '',
       cal: ev.calendarId,
       title: ev.title || '（無標題）',
       location: ev.location,
@@ -156,13 +158,16 @@ export async function updateEvent(ev: CalEvent, d: EventDraft, future: boolean):
   // The native module also moves the event when given a calendarId and accepts fields to clear,
   // though its TypeScript signature lists neither.
   const update = t.update.bind(t) as unknown as Update;
-  const base = fields(d, withRule);
+  // Untouched notes keep their stored form, so Google's formatting survives an edit made here.
+  const keepNotes = d.notes === ev.notes.trim();
+  const { notes, ...rest } = fields(d, withRule);
+  const base = keepNotes ? rest : { ...rest, notes };
   if (d.cal === ev.cal) return update(base, clear);
   try {
     await update({ ...base, calendarId: d.cal }, clear);
   } catch {
     // Some accounts refuse moves between them: copy into the new calendar, then remove the original.
-    await createEvent(d);
+    await createEvent(keepNotes ? { ...d, notes: ev.rawNotes } : d);
     await t.delete();
   }
 }

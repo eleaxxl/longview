@@ -32,7 +32,9 @@ export type CalEvent = {
   repeat?: Repeat;
   /** Reminder offset in minutes from the start (negative = before); null for none. */
   alarm: number | null;
+  /** Description as plain text, and as stored (Google keeps HTML there). */
   notes: string;
+  rawNotes: string;
   cal: string;
   title: string;
   location?: string | null;

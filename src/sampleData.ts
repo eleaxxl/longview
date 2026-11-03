@@ -15,7 +15,7 @@ export function sampleEvents(): CalEvent[] {
   const allDay = (cal: string, title: string, start: string, endIncl?: string, location?: string) => {
     const sDay = parse(start);
     const eDay = parse(endIncl ?? start);
-    out.push({ id: `s${out.length}`, cal, title, location, rawId: `s${out.length}`, recurring: false, alarm: null, notes: '', allDay: true, st: sDay, en: addDays(eDay, 1), sDay, eDay, span: true });
+    out.push({ id: `s${out.length}`, cal, title, location, rawId: `s${out.length}`, recurring: false, alarm: null, notes: '', rawNotes: '', allDay: true, st: sDay, en: addDays(eDay, 1), sDay, eDay, span: true });
   };
   const timed = (cal: string, title: string, date: string, t1: string, t2: string, location?: string) => {
     const d = parse(date);
@@ -23,7 +23,7 @@ export function sampleEvents(): CalEvent[] {
     const [h2, m2] = t2.split(':').map(Number);
     const st = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h1, m1);
     const en = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h2, m2);
-    out.push({ id: `s${out.length}`, cal, title, location, rawId: `s${out.length}`, recurring: false, alarm: null, notes: '', allDay: false, st, en, sDay: dayOnly(st), eDay: dayOnly(st), span: false });
+    out.push({ id: `s${out.length}`, cal, title, location, rawId: `s${out.length}`, recurring: false, alarm: null, notes: '', rawNotes: '', allDay: false, st, en, sDay: dayOnly(st), eDay: dayOnly(st), span: false });
   };
 
   allDay('proj', '需求訪談', '2026-11-09', '2026-11-27');
@@ -114,6 +114,7 @@ function toEvent(d: EventDraft, start: Date, id: string, rawId: string, recurrin
     repeat: recurring ? repeat : undefined,
     alarm: d.alarm,
     notes: d.notes,
+    rawNotes: d.notes,
     cal: d.cal,
     title: d.title,
     location: d.location || null,
