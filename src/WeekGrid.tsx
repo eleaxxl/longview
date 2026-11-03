@@ -44,6 +44,7 @@ type RowProps = {
 
 const WeekRow = memo(function WeekRow({ wsTime, events, colors, t, dens, rowH, today, onEvent, onDay }: RowProps) {
   const styles = useScaled(baseStyles);
+  const z = useZoom();
   const ws = new Date(wsTime);
   const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
   const firstIdx = days.findIndex(d => d.getDate() === 1);
@@ -115,22 +116,23 @@ const WeekRow = memo(function WeekRow({ wsTime, events, colors, t, dens, rowH, t
                   left: pct(p.a),
                   width: pct(p.b - p.a + 1),
                   top: dens.hh + p.lane * dens.lh,
-                  height: dens.lh,
+                  height: dens.lh * p.h,
                 },
               ]}
             >
               <View
                 style={[
                   styles.pieceInner,
+                  p.h > 1 && styles.pieceWrap,
                   e.span && { backgroundColor: color, borderRadius: 3 },
                   cl && { borderTopLeftRadius: 0, borderBottomLeftRadius: 0 },
                   cr && { borderTopRightRadius: 0, borderBottomRightRadius: 0 },
                 ]}
               >
-                {!e.span && <View style={[styles.dot, { backgroundColor: color }]} />}
+                {!e.span && <View style={[styles.dot, { backgroundColor: color }, p.h > 1 && { marginTop: (dens.fs + 3 - 5 * z) / 2 }]} />}
                 {dens.fs > 0 && (
                   <Text
-                    numberOfLines={1}
+                    numberOfLines={p.h}
                     style={[
                       styles.evText,
                       {
@@ -368,6 +370,7 @@ const baseStyles = StyleSheet.create({
     paddingHorizontal: 3,
     overflow: 'hidden',
   },
+  pieceWrap: { alignItems: 'flex-start', paddingTop: 1 },
   dot: { width: 5, height: 5, borderRadius: 3, marginRight: 3 },
   evText: { flexShrink: 1 },
   evSpanText: { fontWeight: '600' },

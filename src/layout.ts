@@ -18,9 +18,14 @@ export function density(rowH: number): Density {
   return { name: 'micro', hh: 12, lh: 4, fs: 0, timed: null };
 }
 
+/** Most lines a timed event's title may wrap onto. */
+const MAX_WRAP = 3;
+
 export type Piece = {
   e: CalEvent;
   lane: number;
+  /** Lanes tall: timed events wrap onto extra lines when their day has room. */
+  h: number;
   /** Visible column range of this segment within the week (0–6). */
   a: number;
   b: number;
@@ -49,7 +54,7 @@ export function layoutWeek(ws: Date, events: CalEvent[], dens: Density, rowH: nu
   const singles = vis.filter(e => !e.span).sort((a, b) => +a.st - +b.st);
 
   const occ: boolean[][] = Array.from({ length: 7 }, () => []);
-  const placed: { e: CalEvent; c0: number; c1: number; lane: number }[] = [];
+  const placed: { e: CalEvent; c0: number; c1: number; lane: number; h: number }[] = [];
 
   for (const e of spans) {
     const c0 = Math.max(0, diff(ws, e.sDay));
@@ -62,21 +67,31 @@ export function layoutWeek(ws: Date, events: CalEvent[], dens: Density, rowH: nu
       lane++;
     }
     for (let c = c0; c <= c1; c++) occ[c][lane] = true;
-    placed.push({ e, c0, c1, lane });
-  }
-
-  const timedCount = Array(7).fill(0);
-  for (const e of singles) {
-    const c = diff(ws, e.sDay);
-    timedCount[c]++;
-    if (!dens.timed) continue;
-    let lane = 0;
-    while (occ[c][lane]) lane++;
-    occ[c][lane] = true;
-    placed.push({ e, c0: c, c1: c, lane });
+    placed.push({ e, c0, c1, lane, h: 1 });
   }
 
   const maxLanes = Math.max(0, Math.floor((rowH - dens.hh - 1) / dens.lh));
+  const timedCount = Array(7).fill(0);
+  for (const e of singles) timedCount[diff(ws, e.sDay)]++;
+
+  // Lines per timed event on each day: as many as the lanes left after the bars allow, up to MAX_WRAP.
+  const wrap = occ.map((o, c) => {
+    let free = 0;
+    for (let l = 0; l < maxLanes; l++) if (!o[l]) free++;
+    return Math.max(1, Math.min(MAX_WRAP, Math.floor(free / Math.max(1, timedCount[c]))));
+  });
+
+  if (dens.timed) {
+    for (const e of singles) {
+      const c = diff(ws, e.sDay);
+      const h = wrap[c];
+      let lane = 0;
+      while (Array.from({ length: h }, (_, k) => occ[c][lane + k]).some(Boolean)) lane++;
+      for (let k = 0; k < h; k++) occ[c][lane + k] = true;
+      placed.push({ e, c0: c, c1: c, lane, h });
+    }
+  }
+
   const limit = occ.map(o => (o.length > maxLanes ? Math.max(0, maxLanes - 1) : maxLanes));
   const hiddenCount = Array(7).fill(0);
   const pieces: Piece[] = [];
@@ -88,7 +103,7 @@ export function layoutWeek(ws: Date, events: CalEvent[], dens: Density, rowH: nu
       if (c <= p.c1 && !show) hiddenCount[c]++;
       if (show && runStart === null) runStart = c;
       if (!show && runStart !== null) {
-        pieces.push({ e: p.e, lane: p.lane, a: runStart, b: c - 1 });
+        pieces.push({ e: p.e, lane: p.lane, h: Math.min(p.h, limit[runStart] - p.lane), a: runStart, b: c - 1 });
         runStart = null;
       }
     }
