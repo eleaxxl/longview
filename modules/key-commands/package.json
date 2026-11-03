@@ -1,0 +1,9 @@
+{
+  "name": "key-commands",
+  "version": "1.0.0",
+  "description": "Keyboard shortcuts (⌘+ ⌘− ⌘0) for zooming",
+  "main": "index.ts",
+  "license": "MIT",
+  "author": "longview",
+  "homepage": "https://example.invalid"
+}

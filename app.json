@@ -1,15 +1,18 @@
 {
   "expo": {
-    "name": "longview",
+    "name": "長視行事曆",
     "slug": "longview",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "app.longview.calendar",
+      "appleTeamId": "J4HUH5W75X"
     },
     "android": {
+      "package": "app.longview.calendar",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -20,6 +23,17 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "長視行事曆需要讀取你的日曆，才能在長期檢視中顯示你的行程。",
+          "remindersPermission": false
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-sqlite"
+    ]
   }
 }
