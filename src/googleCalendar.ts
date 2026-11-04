@@ -76,7 +76,17 @@ if (googleConfigured) loadGis().catch(() => {});
 export const hasSession = () => !!token && token.exp > Date.now();
 
 /** Opens Google's popup for these permissions; the token also keeps whatever was granted before. Call it from a click. */
+// One popup at a time: a tap can both renew the sign-in and press a "connect" button.
+let inFlight: Promise<boolean> | null = null;
+
 function requestToken(scopes: string[], skipConsent: boolean): Promise<boolean> {
+  inFlight ??= askForToken(scopes, skipConsent).finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+}
+
+function askForToken(scopes: string[], skipConsent: boolean): Promise<boolean> {
   return new Promise(resolve => {
     const start = () => {
       const oauth = gisGlobal();
@@ -103,15 +113,30 @@ function requestToken(scopes: string[], skipConsent: boolean): Promise<boolean> 
   });
 }
 
-/** Opens Google's sign-in popup. Call it from a click. */
-export function connect(): Promise<boolean> {
-  let before = false;
+/** Whether this browser has connected to Google before (and hasn't signed out since). */
+export function wasConnected(): boolean {
   try {
-    before = localStorage.getItem(CONNECTED_KEY) === '1';
-  } catch {}
-  // After the first time, Google skips the consent screen.
-  return requestToken(SCOPES, before);
+    return localStorage.getItem(CONNECTED_KEY) === '1';
+  } catch {
+    return false;
+  }
 }
+
+/** Opens Google's sign-in popup. Call it from a click. */
+// After the first time, Google skips the consent screen.
+export const connect = (): Promise<boolean> => requestToken(SCOPES, wasConnected());
+
+/** Renew this long before the hour-long sign-in runs out, so it never lapses mid-use. */
+const RENEW_AHEAD = 5 * 60_000;
+
+/** The sign-in has lapsed, or soon will, for someone who connected before. */
+export const renewalDue = () => wasConnected() && (!token || token.exp - Date.now() < RENEW_AHEAD);
+
+/**
+ * Gets a fresh sign-in without asking again: Google's window opens and closes by itself, keeping
+ * every permission granted before. Browsers only allow it straight from a click or key press.
+ */
+export const renew = (): Promise<boolean> => requestToken(SCOPES, true);
 
 /** Whether the current sign-in may use the app's own hidden folder in the person's Google Drive. */
 export const hasDriveAccess = () => hasSession() && !!token?.scope?.split(' ').includes(DRIVE_SCOPE);

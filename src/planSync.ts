@@ -155,7 +155,8 @@ export function usePlanSync(active: boolean, onPulled: () => void) {
 
   /** Asks Google for the folder, then backs up what's here. Call it from a click. */
   const enable = useCallback(async () => {
-    if (!(await grantDrive())) return;
+    // A renewal already in flight can answer instead, without the folder.
+    if (!(await grantDrive()) || !hasDriveAccess()) return;
     writeSetting('on');
     setSetting('on');
   }, []);

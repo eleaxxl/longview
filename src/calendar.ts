@@ -15,6 +15,10 @@ export const calendarSupported = web ? google.googleConfigured : device.deviceCa
 /** Asks for access on the device; on the web only picks up an earlier sign-in, never a popup. */
 export const requestAccess = (): Promise<boolean> => (web ? Promise.resolve(google.hasSession()) : device.requestAccess());
 export const connect = google.connect;
+/** Web: someone who connected before, so a lapsed sign-in means "renew", not "never connected". */
+export const wasConnected = () => web && google.wasConnected();
+export const renewalDue = () => web && google.renewalDue();
+export const renew = google.renew;
 export const disconnect = google.disconnect;
 export const isSignInNeeded = google.isSignInNeeded;
 

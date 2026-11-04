@@ -24,8 +24,11 @@ import {
   disconnect,
   isSignInNeeded,
   loadCalendars,
+  wasConnected,
   loadEvents,
   needsSignIn,
+  renew,
+  renewalDue,
   requestAccess,
   updateEvent,
 } from './src/calendar';
@@ -113,9 +116,36 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
   useEffect(() => {
     if (source !== 'device' || access !== 'unknown') return;
     requestAccess()
-      .then(ok => setAccess(ok ? 'granted' : 'denied'))
+      .then(ok => {
+        // Web: a sign-in that lapsed since the last visit keeps the saved calendar on screen.
+        if (!ok && wasConnected()) setExpired(true);
+        setAccess(ok ? 'granted' : 'denied');
+      })
       .catch(() => setAccess('denied'));
   }, [source, access]);
+
+  // Web: Google's sign-in lasts an hour, and renewing opens a window, which browsers allow only
+  // from a click or key press. So the first one after it lapses, or shortly before, renews it.
+  useEffect(() => {
+    if (!needsSignIn || typeof window === 'undefined') return;
+    let tried = 0;
+    const onInput = () => {
+      if (!renewalDue() || Date.now() - tried < 30_000) return;
+      tried = Date.now();
+      renew().then(ok => {
+        if (!ok) return;
+        loaded.current = null;
+        setExpired(false);
+        setAccess('granted');
+      });
+    };
+    window.addEventListener('click', onInput, true);
+    window.addEventListener('keydown', onInput, true);
+    return () => {
+      window.removeEventListener('click', onInput, true);
+      window.removeEventListener('keydown', onInput, true);
+    };
+  }, []);
 
   const fetchRange = useCallback(
     async (force = false) => {
@@ -407,7 +437,7 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
               : access === 'denied'
                 ? needsSignIn
                   ? expired
-                    ? 'Google 連線已過期・顯示的是上次載入的行程'
+                    ? 'Google 連線已過期・點一下畫面就會重新連接'
                     : '範例資料・尚未連接 Google 日曆'
                   : '範例資料・尚未允許讀取日曆'
                 : '範例資料'}
