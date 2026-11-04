@@ -42,8 +42,6 @@ import { ZoomContext, addZoomListener, useScaled, useZoom, useZoomState } from '
 type Editing = { draft: EventDraft; ev?: CalEvent };
 
 const MAX_WEEKS = 26;
-/** Calendar chips per row, by the width of the chip area. */
-const chipColumns = (w: number) => (w >= 1000 ? 10 : w >= 700 ? 6 : w >= 480 ? 4 : 3);
 const CHIP_GAP = 6;
 const clampWeeks = (n: number) => Math.max(1, Math.min(MAX_WEEKS, n));
 
@@ -295,10 +293,8 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
     setStart(s => startOfWeek(addDays(s, 3), next));
   };
 
-  const [chipsWidth, setChipsWidth] = useState(0);
-  // Bigger text fits fewer chips per row.
-  const cols = chipColumns(chipsWidth / zoom);
-  const chipWidth = chipsWidth ? Math.floor((chipsWidth - CHIP_GAP * zoom * (cols - 1)) / cols) : undefined;
+  // Name the account only when the calendars come from more than one (the web version's are all Google).
+  const showAccount = source === 'device' && new Set(cals.map(c => c.account)).size > 1;
 
   const end = addDays(start, weeks * 7 - 1);
   const showingSample = source === 'sample' || access === 'denied';
@@ -368,20 +364,18 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
         </View>
       )}
 
-      <View style={styles.chips} onLayout={e => setChipsWidth(e.nativeEvent.layout.width)}>
+      <View style={styles.chips}>
         {cals.map(c => {
           const on = !hidden.has(c.id);
           return (
             <Pressable
               key={c.id}
               onPress={() => toggleCal(c.id)}
-              style={[styles.chip, { width: chipWidth, borderColor: t.line, backgroundColor: on ? t.surface : 'transparent' }]}
+              style={[styles.chip, { borderColor: t.line, backgroundColor: on ? t.surface : 'transparent' }]}
             >
               <View style={[styles.swatch, on ? { backgroundColor: c.color } : { borderWidth: 1.5, borderColor: c.color }]} />
-              <Text numberOfLines={1} style={[styles.chipText, { color: on ? t.ink : t.muted }]}>
-                {c.name}
-              </Text>
-              {source === 'device' && !!c.account && <Text style={[styles.chipAccount, { color: t.muted }]}>{c.account}</Text>}
+              <Text style={[styles.chipText, { color: on ? t.ink : t.muted }]}>{c.name}</Text>
+              {showAccount && !!c.account && <Text style={[styles.chipAccount, { color: t.muted }]}>{c.account}</Text>}
             </Pressable>
           );
         })}
@@ -608,7 +602,7 @@ const baseStyles = StyleSheet.create({
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: StyleSheet.hairlineWidth, borderRadius: 999, paddingVertical: 4, paddingLeft: 8, paddingRight: 10 },
   swatch: { width: 10, height: 10, borderRadius: 3 },
   chipText: { fontSize: 12, flexShrink: 1 },
-  chipAccount: { fontSize: 10, marginLeft: 'auto' },
+  chipAccount: { fontSize: 10 },
   gridWrap: { flex: 1, paddingBottom: 8 },
   flex: { flex: 1 },
   sheetActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, marginTop: 10 },
