@@ -32,6 +32,7 @@ import {
 import { DayPlanner } from './src/DayPlanner';
 import { useDayPlans } from './src/dayPlans';
 import { EventEditor } from './src/EventEditor';
+import { clearCache, readCache, writeCache } from './src/eventCache';
 import { SAMPLE_CALS, applySampleEdit, removeSample, sampleEvents } from './src/sampleData';
 import { useTheme, type Theme } from './src/theme';
 import { noRepeat, type CalEvent, type CalInfo, type EventDraft } from './src/types';
@@ -42,6 +43,8 @@ import { ZoomContext, addZoomListener, useScaled, useZoom, useZoomState } from '
 type Editing = { draft: EventDraft; ev?: CalEvent };
 
 const MAX_WEEKS = 26;
+/** Weeks loaded beyond each end of the view. */
+const LOAD_MARGIN = 26;
 const CHIP_GAP = 6;
 const clampWeeks = (n: number) => Math.max(1, Math.min(MAX_WEEKS, n));
 
@@ -72,8 +75,10 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
   const [access, setAccess] = useState<'unknown' | 'granted' | 'denied'>('unknown');
   /** Web: the Google sign-in ran out while the page was open. */
   const [expired, setExpired] = useState(false);
-  const [cals, setCals] = useState<CalInfo[]>(SAMPLE_CALS);
-  const [events, setEvents] = useState<CalEvent[]>([]);
+  // Web: start from what the last visit loaded, so the calendar shows at once and the layout holds still.
+  const [cache] = useState(() => (calendarSupported && needsSignIn ? readCache() : null));
+  const [cals, setCals] = useState<CalInfo[]>(() => cache?.cals ?? (calendarSupported ? [] : SAMPLE_CALS));
+  const [events, setEvents] = useState<CalEvent[]>(() => cache?.events ?? []);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [openEvent, setOpenEvent] = useState<CalEvent | null>(null);
   const [openDay, setOpenDay] = useState<Date | null>(null);
@@ -81,6 +86,20 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
   const [planDay, setPlanDay] = useState<Date | null>(null);
   const { planned, save: savePlan } = useDayPlans();
   const loaded = useRef<{ from: Date; to: Date; source: Source } | null>(null);
+  /** The load in flight, so moving the view doesn't start the same load again. */
+  const pending = useRef<{ from: Date; to: Date; source: Source } | null>(null);
+  /** Bumped by every load; a load that finishes after a newer one started is dropped. */
+  const seq = useRef(0);
+  const shownSig = useRef('');
+
+  /** Calendars and events together, and only when something changed, so the grid redraws once. */
+  const show = useCallback((list: CalInfo[], evs: CalEvent[]) => {
+    const sig = JSON.stringify([list, evs]);
+    if (sig === shownSig.current) return;
+    shownSig.current = sig;
+    setCals(list);
+    setEvents(evs);
+  }, []);
 
   const setWeeks = useCallback((n: number | ((w: number) => number)) => {
     setWeeksRaw(w => clampWeeks(typeof n === 'function' ? n(w) : n));
@@ -106,28 +125,38 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
       if (src === 'sample') {
         // Keep in-memory edits when the app comes back to the foreground.
         if (l?.source === 'sample') return;
-        setCals(SAMPLE_CALS);
-        setEvents(sampleEvents());
+        seq.current++;
+        pending.current = null;
+        show(SAMPLE_CALS, sampleEvents());
         loaded.current = { from: new Date(-8.64e15), to: new Date(8.64e15), source: src };
         return;
       }
       if (access !== 'granted') return;
-      // Load a margin around the view so small moves don't refetch.
-      const from = addDays(start, -8 * 7);
-      const to = addDays(viewEnd, 8 * 7);
+      // Load a wide margin around the view: a load costs about the same however many weeks it covers.
+      const p = pending.current;
+      if (!force && p && p.source === src && p.from <= start && p.to >= viewEnd) return;
+      const from = addDays(start, -LOAD_MARGIN * 7);
+      const to = addDays(viewEnd, LOAD_MARGIN * 7);
+      const n = ++seq.current;
+      pending.current = { from, to, source };
       try {
         const list = await loadCalendars();
-        setCals(list);
-        setEvents(await loadEvents(list.map(c => c.id), from, to));
+        const evs = await loadEvents(list.map(c => c.id), from, to);
+        if (n !== seq.current) return;
+        show(list, evs);
         loaded.current = { from, to, source };
+        if (needsSignIn) writeCache(list, evs);
       } catch (e) {
+        if (n !== seq.current) return;
         if (!isSignInNeeded(e)) throw e;
         loaded.current = null;
         setExpired(true);
         setAccess('denied');
+      } finally {
+        if (n === seq.current) pending.current = null;
       }
     },
-    [start, weeks, source, access, expired],
+    [start, weeks, source, access, expired, show],
   );
 
   useEffect(() => {
@@ -224,6 +253,7 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
 
   const signOut = () => {
     disconnect();
+    clearCache();
     loaded.current = null;
     setExpired(false);
     setHidden(new Set());

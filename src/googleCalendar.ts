@@ -318,7 +318,11 @@ function toEvent(cal: string, ev: GEvent, masters: Map<string, GEvent>): CalEven
 }
 
 async function loadCalendar(cal: string, from: Date, to: Date): Promise<CalEvent[]> {
-  const range = `timeMin=${enc(from.toISOString())}&timeMax=${enc(to.toISOString())}&maxResults=2500`;
+  // Only the fields used here, which keeps responses small.
+  const fields = enc(
+    'nextPageToken,items(id,status,summary,description,location,start,end,recurringEventId,originalStartTime,recurrence,reminders)',
+  );
+  const range = `timeMin=${enc(from.toISOString())}&timeMax=${enc(to.toISOString())}&maxResults=2500&fields=${fields}`;
   const base = `/calendars/${enc(cal)}/events?${range}`;
   try {
     // Occurrences come expanded; the series themselves carry the repeat rules.
