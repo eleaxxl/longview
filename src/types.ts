@@ -29,6 +29,8 @@ export type CalEvent = {
   /** Id of the stored event; occurrences of a recurring event share it. */
   rawId: string;
   recurring: boolean;
+  /** Google (web) only: the series an occurrence belongs to, and whether it's the series' first. */
+  series?: { id: string; first: boolean };
   repeat?: Repeat;
   /** Reminder offset in minutes from the start (negative = before); null for none. */
   alarm: number | null;

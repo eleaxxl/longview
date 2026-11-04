@@ -17,14 +17,18 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { addDays, dayOnly, diff, fmtDay, fmtShort, hm, key, startOfWeek } from './src/dates';
 import {
+  calendarSupported,
+  connect,
   createEvent,
   deleteEvent,
-  deviceCalendarSupported,
+  disconnect,
+  isSignInNeeded,
   loadCalendars,
   loadEvents,
+  needsSignIn,
   requestAccess,
   updateEvent,
-} from './src/deviceCalendar';
+} from './src/calendar';
 import { DayPlanner } from './src/DayPlanner';
 import { useDayPlans } from './src/dayPlans';
 import { EventEditor } from './src/EventEditor';
@@ -66,8 +70,10 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
   const [wso, setWso] = useState(1);
   const [weeks, setWeeksRaw] = useState(13);
   const [start, setStart] = useState(() => startOfWeek(today, 1));
-  const [source, setSource] = useState<Source>(deviceCalendarSupported ? 'device' : 'sample');
+  const [source, setSource] = useState<Source>(calendarSupported ? 'device' : 'sample');
   const [access, setAccess] = useState<'unknown' | 'granted' | 'denied'>('unknown');
+  /** Web: the Google sign-in ran out while the page was open. */
+  const [expired, setExpired] = useState(false);
   const [cals, setCals] = useState<CalInfo[]>(SAMPLE_CALS);
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -95,25 +101,35 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
     async (force = false) => {
       const viewEnd = addDays(start, weeks * 7);
       const l = loaded.current;
-      if (!force && l && l.source === source && l.from <= start && l.to >= viewEnd) return;
-      if (source === 'sample') {
+      // Without access, show the examples; after a lapsed web sign-in, keep the events already shown.
+      if (expired) return;
+      const src: Source = access === 'denied' ? 'sample' : source;
+      if (!force && l && l.source === src && l.from <= start && l.to >= viewEnd) return;
+      if (src === 'sample') {
         // Keep in-memory edits when the app comes back to the foreground.
         if (l?.source === 'sample') return;
         setCals(SAMPLE_CALS);
         setEvents(sampleEvents());
-        loaded.current = { from: new Date(-8.64e15), to: new Date(8.64e15), source };
+        loaded.current = { from: new Date(-8.64e15), to: new Date(8.64e15), source: src };
         return;
       }
       if (access !== 'granted') return;
       // Load a margin around the view so small moves don't refetch.
       const from = addDays(start, -8 * 7);
       const to = addDays(viewEnd, 8 * 7);
-      const list = await loadCalendars();
-      setCals(list);
-      setEvents(await loadEvents(list.map(c => c.id), from, to));
-      loaded.current = { from, to, source };
+      try {
+        const list = await loadCalendars();
+        setCals(list);
+        setEvents(await loadEvents(list.map(c => c.id), from, to));
+        loaded.current = { from, to, source };
+      } catch (e) {
+        if (!isSignInNeeded(e)) throw e;
+        loaded.current = null;
+        setExpired(true);
+        setAccess('denied');
+      }
     },
-    [start, weeks, source, access],
+    [start, weeks, source, access, expired],
   );
 
   useEffect(() => {
@@ -190,10 +206,39 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
       },
     });
 
+  const expiredError = () => new Error('Google 連線已過期，請重新連接 Google 日曆後再試一次。');
+  /** Web: a save or delete found the Google sign-in expired. */
+  const signInLost = (e: unknown) => {
+    if (!isSignInNeeded(e)) return e;
+    setExpired(true);
+    setAccess('denied');
+    return expiredError();
+  };
+
+  const signIn = () =>
+    connect().then(ok => {
+      if (!ok) return;
+      loaded.current = null;
+      setExpired(false);
+      setSource('device');
+      setAccess('granted');
+    });
+
+  const signOut = () => {
+    disconnect();
+    loaded.current = null;
+    setExpired(false);
+    setHidden(new Set());
+    setAccess('denied');
+  };
+
   const saveDraft = async (d: EventDraft, future: boolean) => {
     const ev = editing?.ev;
+    if (expired) throw expiredError();
     if (usingDevice) {
-      await (ev ? updateEvent(ev, d, future) : createEvent(d));
+      await (ev ? updateEvent(ev, d, future) : createEvent(d)).catch(e => {
+        throw signInLost(e);
+      });
       await fetchRange(true);
     } else {
       setEvents(list => applySampleEdit(list, ev, d, future));
@@ -202,8 +247,11 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
   };
 
   const removeEvent = async (ev: CalEvent, future: boolean) => {
+    if (expired) throw expiredError();
     if (usingDevice) {
-      await deleteEvent(ev, future);
+      await deleteEvent(ev, future).catch(e => {
+        throw signInLost(e);
+      });
       await fetchRange(true);
     } else {
       setEvents(list => removeSample(list, ev, future));
@@ -282,7 +330,7 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
           </Pressable>
           <Btn t={t} label="A+" onPress={() => onZoom(1)} square />
         </View>
-        {deviceCalendarSupported && access === 'granted' && (
+        {calendarSupported && access === 'granted' && (
           <Btn
             t={t}
             label={source === 'device' ? '我的日曆' : '範例資料'}
@@ -292,20 +340,29 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
             }}
           />
         )}
+        {needsSignIn && usingDevice && <Btn t={t} label="登出 Google" onPress={signOut} />}
       </View>
 
       {showingSample && (
         <View style={[styles.notice, { backgroundColor: t.shade }]}>
           <Text style={[styles.noticeText, { color: t.muted }]}>
-            {!deviceCalendarSupported
-              ? '範例資料・網頁版無法讀取裝置日曆'
+            {!calendarSupported
+              ? needsSignIn
+                ? '範例資料・網頁版尚未設定 Google 連線'
+                : '範例資料・這個裝置無法讀取日曆'
               : access === 'denied'
-                ? '範例資料・尚未允許讀取日曆'
+                ? needsSignIn
+                  ? expired
+                    ? 'Google 連線已過期・顯示的是上次載入的行程'
+                    : '範例資料・尚未連接 Google 日曆'
+                  : '範例資料・尚未允許讀取日曆'
                 : '範例資料'}
           </Text>
-          {deviceCalendarSupported && access === 'denied' && (
-            <Pressable onPress={() => Linking.openSettings()}>
-              <Text style={[styles.noticeLink, { color: t.accent }]}>到設定開啟</Text>
+          {calendarSupported && access === 'denied' && (
+            <Pressable onPress={needsSignIn ? signIn : () => Linking.openSettings()}>
+              <Text style={[styles.noticeLink, { color: t.accent }]}>
+                {needsSignIn ? (expired ? '重新連接' : '連接 Google 日曆') : '到設定開啟'}
+              </Text>
             </Pressable>
           )}
         </View>
