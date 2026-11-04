@@ -260,7 +260,7 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
       <StatusBar style="auto" />
 
       <View style={styles.titleRow}>
-        <Text style={[styles.title, { color: t.ink }]}>長視行事曆</Text>
+        <Text style={[styles.title, { color: t.ink }]}>遠景行事曆</Text>
         <Text style={[styles.range, { color: t.muted }]}>
           {fmtShort(start)} – {fmtShort(end)}・{weeks} 週
         </Text>

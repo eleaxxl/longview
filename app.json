@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "長視行事曆",
+    "name": "遠景行事曆",
     "slug": "longview",
     "version": "1.0.0",
     "orientation": "default",
@@ -28,7 +28,7 @@
       [
         "expo-calendar",
         {
-          "calendarPermission": "長視行事曆需要讀取你的日曆，才能在長期檢視中顯示你的行程。",
+          "calendarPermission": "遠景行事曆需要讀取你的日曆，才能在長期檢視中顯示你的行程。",
           "remindersPermission": false
         }
       ],
