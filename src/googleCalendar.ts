@@ -6,6 +6,8 @@ import { noRepeat, type CalEvent, type CalInfo, type EventDraft, type Repeat, ty
 
 const CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? '';
 const SCOPES = ['https://www.googleapis.com/auth/calendar.calendarlist.readonly', 'https://www.googleapis.com/auth/calendar.events'];
+/** Asked for separately, only when the person turns on the day planner's backup. */
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const API = 'https://www.googleapis.com/calendar/v3';
 const TOKEN_KEY = 'google-token';
 const CONNECTED_KEY = 'google-connected';
@@ -17,7 +19,7 @@ export const googleConfigured = typeof window !== 'undefined' && !!CLIENT_ID;
 const signInNeeded = () => Object.assign(new Error('需要重新連接 Google 日曆'), { signInNeeded: true });
 export const isSignInNeeded = (e: unknown) => e instanceof Error && 'signInNeeded' in e;
 
-type TokenResponse = { access_token?: string; expires_in?: number; error?: string };
+type TokenResponse = { access_token?: string; expires_in?: number; scope?: string; error?: string };
 type Gis = {
   accounts: {
     oauth2: {
@@ -31,7 +33,8 @@ type Gis = {
 };
 const gisGlobal = () => (window as unknown as { google?: Gis }).google?.accounts?.oauth2;
 
-type Token = { value: string; exp: number };
+/** scope: every permission the token carries, space-separated. */
+type Token = { value: string; exp: number; scope?: string };
 
 function readToken(): Token | null {
   try {
@@ -72,19 +75,19 @@ if (googleConfigured) loadGis().catch(() => {});
 /** True when an earlier sign-in is still valid. Never opens a popup. */
 export const hasSession = () => !!token && token.exp > Date.now();
 
-/** Opens Google's sign-in popup. Call it from a click. */
-export function connect(): Promise<boolean> {
+/** Opens Google's popup for these permissions; the token also keeps whatever was granted before. Call it from a click. */
+function requestToken(scopes: string[], skipConsent: boolean): Promise<boolean> {
   return new Promise(resolve => {
     const start = () => {
       const oauth = gisGlobal();
       if (!oauth) return resolve(false);
       const client = oauth.initTokenClient({
         client_id: CLIENT_ID,
-        scope: SCOPES.join(' '),
+        scope: scopes.join(' '),
         callback: r => {
-          if (!r.access_token || !oauth.hasGrantedAllScopes(r, ...SCOPES)) return resolve(false);
+          if (!r.access_token || !oauth.hasGrantedAllScopes(r, ...scopes)) return resolve(false);
           // Renew a little early so a request never goes out with a token about to lapse.
-          token = { value: r.access_token, exp: Date.now() + ((r.expires_in ?? 3600) - 60) * 1000 };
+          token = { value: r.access_token, exp: Date.now() + ((r.expires_in ?? 3600) - 60) * 1000, scope: r.scope };
           try {
             localStorage.setItem(TOKEN_KEY, JSON.stringify(token));
             localStorage.setItem(CONNECTED_KEY, '1');
@@ -93,17 +96,28 @@ export function connect(): Promise<boolean> {
         },
         error_callback: () => resolve(false),
       });
-      let before = false;
-      try {
-        before = localStorage.getItem(CONNECTED_KEY) === '1';
-      } catch {}
-      // After the first time, Google skips the consent screen.
-      client.requestAccessToken(before ? { prompt: '' } : {});
+      client.requestAccessToken(skipConsent ? { prompt: '' } : {});
     };
     if (gisGlobal()) start();
     else loadGis().then(start, () => resolve(false));
   });
 }
+
+/** Opens Google's sign-in popup. Call it from a click. */
+export function connect(): Promise<boolean> {
+  let before = false;
+  try {
+    before = localStorage.getItem(CONNECTED_KEY) === '1';
+  } catch {}
+  // After the first time, Google skips the consent screen.
+  return requestToken(SCOPES, before);
+}
+
+/** Whether the current sign-in may use the app's own hidden folder in the person's Google Drive. */
+export const hasDriveAccess = () => hasSession() && !!token?.scope?.split(' ').includes(DRIVE_SCOPE);
+
+/** Asks for the Drive folder on top of the calendar. Call it from a click. */
+export const grantDrive = () => requestToken([DRIVE_SCOPE], false);
 
 /** Signs out and withdraws this site's access to the calendar. */
 export function disconnect() {
@@ -117,18 +131,19 @@ export function disconnect() {
 
 const enc = encodeURIComponent;
 
-async function call<T>(path: string, init: { method?: string; body?: object } = {}): Promise<T> {
+/** An authorized request to any Google API; throws on failure, with Google's message when it gives one. */
+export async function googleFetch(url: string, init: { method?: string; body?: string; contentType?: string } = {}): Promise<Response> {
   if (!hasSession()) {
     clearToken();
     throw signInNeeded();
   }
-  const res = await fetch(API + path, {
+  const res = await fetch(url, {
     method: init.method ?? 'GET',
     headers: {
       Authorization: `Bearer ${token!.value}`,
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(init.contentType ? { 'Content-Type': init.contentType } : {}),
     },
-    body: init.body ? JSON.stringify(init.body) : undefined,
+    body: init.body,
   });
   if (res.status === 401) {
     clearToken();
@@ -138,6 +153,14 @@ async function call<T>(path: string, init: { method?: string; body?: object } = 
     const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
     throw new Error(j?.error?.message ?? `Google 回應錯誤（${res.status}）`);
   }
+  return res;
+}
+
+async function call<T>(path: string, init: { method?: string; body?: object } = {}): Promise<T> {
+  const res = await googleFetch(API + path, {
+    method: init.method,
+    ...(init.body ? { body: JSON.stringify(init.body), contentType: 'application/json' } : {}),
+  });
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 

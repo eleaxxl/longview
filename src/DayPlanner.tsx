@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -15,6 +17,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { addDays, dayOnly, fmtDay, hm, pad } from './dates';
 import { readPlan, type DayPlan } from './dayPlans';
+import type { PlanSync } from './planSync';
 import type { Theme } from './theme';
 import type { CalEvent } from './types';
 import { useScaled, useZoom } from './zoom';
@@ -27,6 +30,10 @@ type Props = {
   events: CalEvent[];
   colors: Record<string, string>;
   onSave: (day: Date, plan: DayPlan) => void;
+  /** Changes when plans arrive from another device. */
+  version: number;
+  /** The Google Drive backup; its status is null where it isn't offered (the apps, or not signed in). */
+  cloud: PlanSync;
   onDay: (day: Date) => void;
   onClose: () => void;
 };
@@ -36,20 +43,27 @@ const FIRST_HOUR = 6;
 const LAST_HOUR = 23;
 const MARKS = ['①', '②', '③'];
 
-/** A whole-day page: the three main things, an hour-by-hour schedule, a to-do list and notes. Kept on this device only. */
-export function DayPlanner({ t, day, today, events, colors, onSave, onDay, onClose }: Props) {
+// On the web the safe-area library measures the page while it's still sliding in and can pad it by the
+// whole window height; browsers have no notch to keep clear of, so a plain view does.
+const web = Platform.OS === 'web';
+const Frame = web ? ({ children }: { children: React.ReactNode }) => <>{children}</> : SafeAreaProvider;
+const Screen = web ? View : SafeAreaView;
+
+/** A whole-day page: the three main things, an hour-by-hour schedule, a to-do list and notes. */
+export function DayPlanner({ t, day, today, events, colors, onSave, version, cloud, onDay, onClose }: Props) {
   const styles = useScaled(baseStyles);
   const z = useZoom();
   const { width } = useWindowDimensions();
   const wide = width / z >= 760;
   // The page for another day starts from that day's saved plan.
-  const [shown, setShown] = useState({ day, plan: readPlan(day) });
-  if (+shown.day !== +day) setShown({ day, plan: readPlan(day) });
+  // So does a plan that just arrived from another device.
+  const [shown, setShown] = useState({ day, version, plan: readPlan(day) });
+  if (+shown.day !== +day || shown.version !== version) setShown({ day, version, plan: readPlan(day) });
   const plan = shown.plan;
 
   const update = (change: (p: DayPlan) => DayPlan) => {
     const next = change(plan);
-    setShown({ day, plan: next });
+    setShown({ day, version, plan: next });
     onSave(day, next);
   };
 
@@ -158,8 +172,8 @@ export function DayPlanner({ t, day, today, events, colors, onSave, onDay, onClo
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
       {/* A modal is its own window, so it needs its own safe-area measurements. */}
-      <SafeAreaProvider>
-        <SafeAreaView style={[styles.screen, { backgroundColor: t.bg }]}>
+      <Frame>
+        <Screen style={[styles.screen, { backgroundColor: t.bg }]}>
           <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <View style={styles.header}>
               <Text style={[styles.title, styles.flex, { color: +day === +today ? t.accent : t.ink }]} numberOfLines={1}>
@@ -172,7 +186,13 @@ export function DayPlanner({ t, day, today, events, colors, onSave, onDay, onClo
               <HeadBtn t={t} label="後一天 ›" onPress={() => onDay(addDays(day, 1))} />
               {+day !== +today && <HeadBtn t={t} label="今天" onPress={() => onDay(today)} />}
             </View>
-            <Text style={[styles.hint, { color: t.muted }]}>單日規劃只存在這台裝置上，不會同步到 Google。</Text>
+            {cloud.status === null ? (
+              <Text style={[styles.hint, { color: t.muted }]}>單日規劃只存在這台裝置上，不會同步到 Google。</Text>
+            ) : cloud.status === 'ask' ? (
+              <BackupOffer t={t} cloud={cloud} />
+            ) : (
+              <BackupBar t={t} cloud={cloud} />
+            )}
 
             {wide ? (
               <View style={styles.columns}>
@@ -194,8 +214,8 @@ export function DayPlanner({ t, day, today, events, colors, onSave, onDay, onClo
               </ScrollView>
             )}
           </KeyboardAvoidingView>
-        </SafeAreaView>
-      </SafeAreaProvider>
+        </Screen>
+      </Frame>
     </Modal>
   );
 }
@@ -257,6 +277,91 @@ function NewTodo({ t, onAdd }: { t: Theme; onAdd: (text: string) => void }) {
   );
 }
 
+/** Asked once, the first time the planner opens: back up to the person's own Google Drive? */
+function BackupOffer({ t, cloud }: { t: Theme; cloud: PlanSync }) {
+  const styles = useScaled(baseStyles);
+  return (
+    <View style={[styles.offer, { borderColor: t.accent, backgroundColor: t.surface }]}>
+      <Text style={[styles.offerTitle, { color: t.ink }]}>要把單日規劃備份到你的 Google 雲端硬碟嗎？</Text>
+      <Text style={[styles.offerText, { color: t.ink }]}>
+        開啟後，你的規劃會存進你自己 Google 雲端硬碟裡的隱藏資料夾，換電腦、換手機都看得到，清除瀏覽器資料也不會不見。
+      </Text>
+      <Text style={[styles.offerText, { color: t.ink }]}>這些資料只有你自己能存取，遠景行事曆的開發者和其他人都看不到。</Text>
+      <Text style={[styles.offerText, { color: t.muted }]}>如果不開啟，規劃只會存在這個瀏覽器裡。</Text>
+      <View style={styles.offerActions}>
+        <HeadBtn t={t} label="先不要" onPress={cloud.decline} />
+        <HeadBtn t={t} label="開啟雲端備份" onPress={cloud.enable} primary />
+      </View>
+    </View>
+  );
+}
+
+const STATUS_TEXT: Record<string, string> = {
+  off: '雲端備份：未開啟・規劃只存在這個瀏覽器裡',
+  regrant: '雲端備份：需要重新允許存取 Google 雲端硬碟',
+  syncing: '雲端備份：開啟中・同步中…',
+  synced: '雲端備份：開啟中・已同步到你的 Google 雲端硬碟',
+  error: '雲端備份：開啟中・這次沒有同步成功，會自動再試',
+};
+
+/** The backup's state, with a switch; turning it off asks whether to delete the copy in Drive. */
+function BackupBar({ t, cloud }: { t: Theme; cloud: PlanSync }) {
+  const styles = useScaled(baseStyles);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const status = cloud.status ?? 'off';
+  const on = status !== 'off';
+
+  const turnOff = async (deleteBackup: boolean) => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      await cloud.disable(deleteBackup);
+      setConfirming(false);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.bar}>
+      <View style={styles.barRow}>
+        {status === 'syncing' && <ActivityIndicator size="small" color={t.muted} />}
+        <Text style={[styles.barText, { color: status === 'error' || status === 'regrant' ? t.holiday : t.muted }]}>
+          {STATUS_TEXT[status]}
+        </Text>
+        {status === 'regrant' && (
+          <Pressable onPress={cloud.enable} hitSlop={6}>
+            <Text style={[styles.barLink, { color: t.accent }]}>重新允許</Text>
+          </Pressable>
+        )}
+        <Switch
+          value={on}
+          disabled={busy}
+          onValueChange={v => (v ? cloud.enable() : status === 'regrant' ? turnOff(false) : setConfirming(true))}
+          trackColor={{ true: t.accent }}
+        />
+      </View>
+      {confirming && (
+        <View style={[styles.confirm, { borderColor: t.line, backgroundColor: t.surface }]}>
+          <Text style={[styles.offerText, { color: t.ink }]}>
+            關閉雲端備份。要同時刪除你 Google 雲端硬碟裡的備份嗎？這個瀏覽器裡的規劃都會保留。
+          </Text>
+          {failed && <Text style={[styles.offerText, { color: t.holiday }]}>沒有成功，請再試一次。</Text>}
+          <View style={styles.offerActions}>
+            <HeadBtn t={t} label="取消" onPress={() => setConfirming(false)} />
+            <HeadBtn t={t} label="只關閉" onPress={() => turnOff(false)} />
+            <HeadBtn t={t} label="刪除雲端備份並關閉" onPress={() => turnOff(true)} primary />
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function HeadBtn({ t, label, onPress, primary }: { t: Theme; label: string; onPress: () => void; primary?: boolean }) {
   const styles = useScaled(baseStyles);
   return (
@@ -278,6 +383,15 @@ const baseStyles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingTop: 10 },
   title: { fontSize: 22, fontWeight: '700', fontVariant: ['tabular-nums'] },
   hint: { fontSize: 12, paddingHorizontal: 14, paddingTop: 4, paddingBottom: 8 },
+  offer: { marginHorizontal: 14, marginTop: 8, marginBottom: 8, borderRadius: 12, borderWidth: 1.5, padding: 14, gap: 6 },
+  offerTitle: { fontSize: 16, fontWeight: '700' },
+  offerText: { fontSize: 14, lineHeight: 20 },
+  offerActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, marginTop: 6 },
+  bar: { paddingHorizontal: 14, paddingTop: 4, paddingBottom: 8, gap: 6 },
+  barRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  barText: { fontSize: 12, flexShrink: 1 },
+  barLink: { fontSize: 12, fontWeight: '600' },
+  confirm: { borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, padding: 12, gap: 4 },
   btn: {
     minWidth: 40,
     height: 36,

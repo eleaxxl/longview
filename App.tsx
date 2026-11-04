@@ -33,6 +33,7 @@ import { DayPlanner } from './src/DayPlanner';
 import { useDayPlans } from './src/dayPlans';
 import { EventEditor } from './src/EventEditor';
 import { clearCache, readCache, writeCache } from './src/eventCache';
+import { usePlanSync } from './src/planSync';
 import { SAMPLE_CALS, applySampleEdit, removeSample, sampleEvents } from './src/sampleData';
 import { useTheme, type Theme } from './src/theme';
 import { noRepeat, type CalEvent, type CalInfo, type EventDraft } from './src/types';
@@ -84,7 +85,7 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
   const [openDay, setOpenDay] = useState<Date | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [planDay, setPlanDay] = useState<Date | null>(null);
-  const { planned, save: savePlan } = useDayPlans();
+  const { planned, save: storePlan, version: planVersion, reload: reloadPlans } = useDayPlans();
   const loaded = useRef<{ from: Date; to: Date; source: Source } | null>(null);
   /** The load in flight, so moving the view doesn't start the same load again. */
   const pending = useRef<{ from: Date; to: Date; source: Source } | null>(null);
@@ -190,6 +191,15 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
   const visible = useMemo(() => events.filter(e => !hidden.has(e.cal)), [events, hidden]);
   const writableCals = useMemo(() => cals.filter(c => c.writable), [cals]);
   const usingDevice = source === 'device' && access === 'granted';
+  // Web, signed in to Google: day plans can be backed up to the person's own Google Drive.
+  const cloud = usePlanSync(needsSignIn && usingDevice, reloadPlans);
+  const savePlan = useCallback(
+    (day: Date, plan: Parameters<typeof storePlan>[1]) => {
+      storePlan(day, plan);
+      cloud.changed();
+    },
+    [storePlan, cloud],
+  );
 
   const closeSheet = () => {
     setOpenEvent(null);
@@ -473,6 +483,8 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
           events={visible}
           colors={colors}
           onSave={savePlan}
+          version={planVersion}
+          cloud={cloud}
           onDay={setPlanDay}
           onClose={() => setPlanDay(null)}
         />
