@@ -34,6 +34,7 @@ import { useDayPlans } from './src/dayPlans';
 import { EventEditor } from './src/EventEditor';
 import { clearCache, readCache, writeCache } from './src/eventCache';
 import { usePlanSync } from './src/planSync';
+import { storage } from './src/storage';
 import { SAMPLE_CALS, applySampleEdit, removeSample, sampleEvents } from './src/sampleData';
 import { useTheme, type Theme } from './src/theme';
 import { noRepeat, type CalEvent, type CalInfo, type EventDraft } from './src/types';
@@ -47,6 +48,7 @@ const MAX_WEEKS = 26;
 /** Weeks loaded beyond each end of the view. */
 const LOAD_MARGIN = 26;
 const CHIP_GAP = 6;
+const CALS_OPEN_KEY = 'calendars-open';
 const clampWeeks = (n: number) => Math.max(1, Math.min(MAX_WEEKS, n));
 
 type Source = 'device' | 'sample';
@@ -335,6 +337,22 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
 
   // Name the account only when the calendars come from more than one (the web version's are all Google).
   const showAccount = source === 'device' && new Set(cals.map(c => c.account)).size > 1;
+  // The calendar list folds into one bar; the choice is remembered.
+  const [calsOpen, setCalsOpen] = useState(() => {
+    try {
+      return storage?.getItemSync(CALS_OPEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleCalsOpen = () =>
+    setCalsOpen(o => {
+      try {
+        storage?.setItemSync(CALS_OPEN_KEY, o ? '0' : '1');
+      } catch {}
+      return !o;
+    });
+  const shownCals = cals.filter(c => !hidden.has(c.id));
 
   const end = addDays(start, weeks * 7 - 1);
   const showingSample = source === 'sample' || access === 'denied';
@@ -404,22 +422,40 @@ function Planner({ onZoom }: { onZoom: (step: number) => void }) {
         </View>
       )}
 
-      <View style={styles.chips}>
-        {cals.map(c => {
-          const on = !hidden.has(c.id);
-          return (
-            <Pressable
-              key={c.id}
-              onPress={() => toggleCal(c.id)}
-              style={[styles.chip, { borderColor: t.line, backgroundColor: on ? t.surface : 'transparent' }]}
-            >
-              <View style={[styles.swatch, on ? { backgroundColor: c.color } : { borderWidth: 1.5, borderColor: c.color }]} />
-              <Text style={[styles.chipText, { color: on ? t.ink : t.muted }]}>{c.name}</Text>
-              {showAccount && !!c.account && <Text style={[styles.chipAccount, { color: t.muted }]}>{c.account}</Text>}
-            </Pressable>
-          );
-        })}
-      </View>
+      <Pressable
+        onPress={toggleCalsOpen}
+        style={({ pressed }) => [styles.calBar, { borderColor: t.line, backgroundColor: pressed ? t.shade : t.surface }]}
+      >
+        <Text style={[styles.calBarText, { color: t.ink }]}>日曆</Text>
+        <Text style={[styles.calBarCount, { color: t.muted }]}>
+          {shownCals.length === cals.length ? `${cals.length} 個` : `顯示 ${shownCals.length} / ${cals.length}`}
+        </Text>
+        <View style={styles.calBarDots}>
+          {shownCals.map(c => (
+            <View key={c.id} style={[styles.calBarDot, { backgroundColor: c.color }]} />
+          ))}
+        </View>
+        <Text style={[styles.calBarText, { color: t.muted }]}>{calsOpen ? '收合 ▴' : '展開 ▾'}</Text>
+      </Pressable>
+
+      {calsOpen && (
+        <View style={styles.chips}>
+          {cals.map(c => {
+            const on = !hidden.has(c.id);
+            return (
+              <Pressable
+                key={c.id}
+                onPress={() => toggleCal(c.id)}
+                style={[styles.chip, { borderColor: t.line, backgroundColor: on ? t.surface : 'transparent' }]}
+              >
+                <View style={[styles.swatch, on ? { backgroundColor: c.color } : { borderWidth: 1.5, borderColor: c.color }]} />
+                <Text style={[styles.chipText, { color: on ? t.ink : t.muted }]}>{c.name}</Text>
+                {showAccount && !!c.account && <Text style={[styles.chipAccount, { color: t.muted }]}>{c.account}</Text>}
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
 
       <View style={styles.gridWrap} {...pan.panHandlers}>
         <WeekGrid
@@ -640,6 +676,20 @@ const baseStyles = StyleSheet.create({
   zoomText: { fontSize: 13, minWidth: 40, textAlign: 'center', fontVariant: ['tabular-nums'] },
   closeText: { fontSize: 20 },
   dayScroll: { maxHeight: 360 },
+  calBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  calBarText: { fontSize: 13, fontWeight: '600' },
+  calBarCount: { fontSize: 12 },
+  calBarDots: { flex: 1, flexDirection: 'row', flexWrap: 'nowrap', gap: 3, overflow: 'hidden' },
+  calBarDot: { width: 8, height: 8, borderRadius: 4 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: CHIP_GAP, paddingBottom: 8 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: StyleSheet.hairlineWidth, borderRadius: 999, paddingVertical: 4, paddingLeft: 8, paddingRight: 10 },
   swatch: { width: 10, height: 10, borderRadius: 3 },
